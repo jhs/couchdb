@@ -23,7 +23,7 @@
 -export([make_arity_1_fun/1, make_arity_2_fun/1, make_arity_3_fun/1]).
 -export([parse_form/1,json_body/1,json_body_obj/1,body/1]).
 -export([doc_etag/1, make_etag/1, etag_match/2, etag_respond/3, etag_maybe/2]).
--export([primary_header_value/2,partition/1,serve_file/3,serve_file/4, server_header/0]).
+-export([primary_header_value/2,partition/1,serve_file/3,serve_file/4, server_header/0, http_headers/2]).
 -export([start_chunked_response/3,send_chunk/2,log_request/2]).
 -export([start_response_length/4, start_response/3, send/2]).
 -export([start_json_response/2, start_json_response/3, end_json_response/1]).
@@ -642,6 +642,11 @@ no_resp_conn_header([{Hdr, _}|Rest]) ->
         _ -> no_resp_conn_header(Rest)
     end.
 
+http_headers(#httpd{mochi_req=MochiReq}=Req, Headers) ->
+    http_1_0_keep_alive(MochiReq,
+      Headers
+    ).
+
 http_1_0_keep_alive(Req, Headers) ->
     KeepOpen = Req:should_close() == false,
     IsHttp10 = Req:get(version) == {1, 0},
@@ -654,7 +659,7 @@ http_1_0_keep_alive(Req, Headers) ->
 start_chunked_response(#httpd{mochi_req=MochiReq}=Req, Code, Headers) ->
     log_request(Req, Code),
     couch_stats_collector:increment({httpd_status_codes, Code}),
-    Headers2 = http_1_0_keep_alive(MochiReq, Headers),
+    Headers2 = http_headers(Req, Headers),
     Resp = MochiReq:respond({Code, Headers2 ++ server_header() ++ couch_httpd_auth:cookie_auth_header(Req, Headers2), chunked}),
     case MochiReq:get(method) of
     'HEAD' -> throw({http_head_abort, Resp});
@@ -676,7 +681,7 @@ last_chunk(Resp) ->
 send_response(#httpd{mochi_req=MochiReq}=Req, Code, Headers, Body) ->
     log_request(Req, Code),
     couch_stats_collector:increment({httpd_status_codes, Code}),
-    Headers2 = http_1_0_keep_alive(MochiReq, Headers),
+    Headers2 = http_headers(Req, Headers),
     if Code >= 400 ->
         ?LOG_DEBUG("httpd ~p error response:~n ~s", [Code, Body]);
     true -> ok
