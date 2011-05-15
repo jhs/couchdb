@@ -269,7 +269,8 @@ handle_request_int(MochiReq, DefaultFun,
 
     % allow broken HTTP clients to fake a full method vocabulary with an X-HTTP-METHOD-OVERRIDE header
     MethodOverride = MochiReq:get_primary_header_value("X-HTTP-Method-Override"),
-    Method2 = case lists:member(MethodOverride, ["GET", "HEAD", "POST", "PUT", "DELETE", "TRACE", "CONNECT", "COPY"]) of
+    Method2 = case lists:member(MethodOverride,
+        ["GET", "HEAD", "POST", "PUT", "DELETE", "TRACE", "CONNECT", "COPY", "OPTIONS"]) of
     true -> 
         ?LOG_INFO("MethodOverride: ~s (real method was ~s)", [MethodOverride, Method1]),
         case Method1 of
@@ -308,6 +309,9 @@ handle_request_int(MochiReq, DefaultFun,
     {ok, Resp} =
     try
         case authenticate_request(HttpReq, AuthHandlers) of
+        #httpd{method='OPTIONS'} = Req ->
+            % All OPTIONS queries get a no-op response (needed by CORS preflight).
+            send_json(Req, {[{ok, true}]});
         #httpd{} = Req ->
             HandlerFun(Req);
         Response ->
