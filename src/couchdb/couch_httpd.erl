@@ -646,7 +646,9 @@ no_resp_conn_header([{Hdr, _}|Rest]) ->
 
 http_headers(#httpd{mochi_req=MochiReq}=Req, Headers) ->
     http_1_0_keep_alive(MochiReq,
-      Headers
+      http_cors_headers(Req,
+        Headers
+      )
     ).
 
 http_1_0_keep_alive(Req, Headers) ->
@@ -657,6 +659,135 @@ http_1_0_keep_alive(Req, Headers) ->
         true -> [{"Connection", "Keep-Alive"} | Headers];
         false -> Headers
     end.
+
+http_cors_headers(Req, Headers) ->
+    http_cors_headers(Req, Headers, couch_httpd:header_value(Req, "Origin")).
+
+http_cors_headers(_Req, Headers, undefined) ->
+    % Not a CORS request
+    Headers;
+
+http_cors_headers(Req, Headers, Origin) when is_list(Origin) ->
+    case couch_config:get("httpd", "cors", "false") of
+        "true" -> http_cors_headers(Req, Headers, {Origin, null});
+        _False -> Headers % CORS is disabled.
+    end;
+
+http_cors_headers(Req, Headers, {Origin, null}) ->
+    Origins = re:split(Origin, " "),
+
+    ForwardedHeader = couch_config:get("httpd", "x_forwarded_host", "X-Forwarded-Host"),
+    VHost = case couch_httpd:header_value(Req, ForwardedHeader) of
+        undefined ->
+            case couch_httpd:header_value(Req, "Host") of
+                undefined -> "";
+                HostHeader -> HostHeader
+            end;
+        ForwardedHost -> ForwardedHost
+    end,
+
+    case couch_config:get("cors", VHost) of
+        undefined ->
+            ?LOG_DEBUG("No CORS config for ~p, origin: ~p", [VHost, Origin]),
+            Headers;
+        VHostVal ->
+            % Process Origin using the configured allowed-Origins space-separated list.
+            OkOrigins = re:split(VHostVal, " "),
+            http_cors_headers(Req, Headers, {Origins, OkOrigins})
+    end;
+
+http_cors_headers(Req, Headers, {Origins, OkOrigins}) ->
+    % Confirm that the request Origin(s) is (are) approved.
+    HasWildcard = lists:any(fun(X) -> X == <<"*">> end, OkOrigins),
+    IsOk = fun(X) ->
+        HasWildcard orelse lists:member(X, OkOrigins)
+    end,
+
+    case lists:all(IsOk, Origins) of
+        false ->
+            ?LOG_DEBUG("Reqest Origin ~p not on whitelist: ~p", [Origins, OkOrigins]),
+            Headers;
+        true ->
+            ReqOrigin = couch_httpd:header_value(Req, "Origin"),
+            CommonHeaders = [ {"Access-Control-Allow-Origin", ReqOrigin}
+                            , {"Access-Control-Allow-Credentials", "true"}
+                            ],
+            http_cors_headers(Req, Headers, ReqOrigin, CommonHeaders)
+    end.
+
+http_cors_headers(Req, Headers, Origin, CorsHeaders) when Req#httpd.method =/= 'OPTIONS' ->
+    ?LOG_DEBUG("Valid CORS simple request from ~p", [Origin]),
+    lists:flatten([Headers, CorsHeaders]);
+
+http_cors_headers(Req, Headers, Origin, CorsHeaders) when Req#httpd.method =:= 'OPTIONS' ->
+    case couch_httpd:header_value(Req, "Access-Control-Request-Method") of
+        undefined ->
+            % Ignore CORS preflight check which didn't specify a method.
+            Headers;
+        Method when    Method =/= "GET"
+               andalso Method =/= "POST"
+               andalso Method =/= "PUT"
+               andalso Method =/= "DELETE"
+               andalso Method =/= "HEAD"
+               andalso Method =/= "COPY"
+               andalso Method =/= "OPTIONS"
+               ->
+                  % Ignore CORS preflight check with unsupported method.
+                  Headers;
+        _Method ->
+            % http://www.w3.org/TR/cors/#resource-preflight-requests
+            % If any header field-names is not an ASCII case-insensitive match for any
+            % of the values in the list of headers, do not set any additional headers
+            % and terminate processing the preflight request.
+            ReqHeaders = case couch_httpd:header_value(Req, "Access-Control-Request-Headers") of
+                undefined -> [];
+                ReqHeadersStr ->
+                    ReqHeadersBins = re:split(ReqHeadersStr, ",\\s*"),
+                    [ string:to_lower(?b2l(X)) || X <- ReqHeadersBins ]
+            end,
+
+            SimpleHeaders = [ "accept"
+                            , "accept-language"
+                            , "content-language"
+                            , "last-event-id"
+                            , "content-type"
+                            ],
+            CouchHeaders = [ "content-length"
+                           , "if-match"
+                           , "destination"
+                           , "x-requested-with" % For jQuery v1.5.1.
+                           , "x-http-method-override"
+                           ],
+            SupportedHeaders = SimpleHeaders ++ CouchHeaders,
+
+            IsOk = fun(X) ->
+                lists:member(X, SupportedHeaders)
+            end,
+
+            case lists:all(IsOk, ReqHeaders) of
+                false ->
+                    ?LOG_DEBUG("Bad CORS preflight request-headers: ~p from ~p", [ReqHeaders, Origin]),
+                    Headers;
+                true ->
+                    ?LOG_DEBUG("Good CORS preflight request from ~p", [Origin]),
+                    MaxAge      = couch_config:get("httpd", "cors_max_age", "3600"),
+                    GoodMethods = "GET, POST, PUT, DELETE, HEAD, COPY, OPTIONS",
+                    GoodHeaders =
+                        case couch_httpd:header_value(Req, "Access-Control-Request-Headers") of
+                            undefined -> "";
+                            HeadersVal -> HeadersVal
+                        end,
+
+                    PreflightHeaders =
+                      [ {"Access-Control-Max-Age"      , MaxAge}
+                      , {"Access-Control-Allow-Methods", GoodMethods}
+                      , {"Access-Control-Allow-Headers", GoodHeaders}
+                      ],
+
+                    lists:flatten([Headers, CorsHeaders, PreflightHeaders])
+            end
+    end.
+
 
 start_chunked_response(#httpd{mochi_req=MochiReq}=Req, Code, Headers) ->
     log_request(Req, Code),
