@@ -443,8 +443,9 @@ serve_file(Req, RelativePath, DocumentRoot) ->
 
 serve_file(#httpd{mochi_req=MochiReq}=Req, RelativePath, DocumentRoot, ExtraHeaders) ->
     log_request(Req, 200),
+    Headers = http_headers(Req, ExtraHeaders),
     {ok, MochiReq:serve_file(RelativePath, DocumentRoot,
-        server_header() ++ couch_httpd_auth:cookie_auth_header(Req, []) ++ ExtraHeaders)}.
+        server_header() ++ couch_httpd_auth:cookie_auth_header(Req, []) ++ Headers)}.
 
 qs_value(Req, Key) ->
     qs_value(Req, Key, undefined).
@@ -611,7 +612,8 @@ log_request(#httpd{mochi_req=MochiReq,peer=Peer}, Code) ->
 start_response_length(#httpd{mochi_req=MochiReq}=Req, Code, Headers, Length) ->
     log_request(Req, Code),
     couch_stats_collector:increment({httpd_status_codes, Code}),
-    Resp = MochiReq:start_response_length({Code, Headers ++ server_header() ++ couch_httpd_auth:cookie_auth_header(Req, Headers), Length}),
+    Headers2 = http_headers(Req, Headers),
+    Resp = MochiReq:start_response_length({Code, Headers2 ++ server_header() ++ couch_httpd_auth:cookie_auth_header(Req, Headers2), Length}),
     case MochiReq:get(method) of
     'HEAD' -> throw({http_head_abort, Resp});
     _ -> ok
@@ -622,7 +624,7 @@ start_response(#httpd{mochi_req=MochiReq}=Req, Code, Headers) ->
     log_request(Req, Code),
     couch_stats_collector:increment({httpd_status_cdes, Code}),
     CookieHeader = couch_httpd_auth:cookie_auth_header(Req, Headers),
-    Headers2 = Headers ++ server_header() ++ CookieHeader,
+    Headers2 = http_headers(Req, Headers) ++ server_header() ++ CookieHeader,
     Resp = MochiReq:start_response({Code, Headers2}),
     case MochiReq:get(method) of
         'HEAD' -> throw({http_head_abort, Resp});
