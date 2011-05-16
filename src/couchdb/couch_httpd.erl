@@ -596,8 +596,15 @@ etag_maybe(Req, RespFun) ->
             send_response(Req, 304, [{"ETag", ETag}], <<>>)
     end.
 
-verify_is_server_admin(#httpd{user_ctx=UserCtx}) ->
-    verify_is_server_admin(UserCtx);
+verify_is_server_admin(#httpd{user_ctx=UserCtx}=Req) ->
+    case couch_httpd:header_value(Req, "Origin") of
+        undefined ->
+            % Normal verification for non-CORS request.
+            verify_is_server_admin(UserCtx);
+        _ ->
+            throw({unauthorized, <<"Cross-origin admin is not allowed.">>})
+    end;
+
 verify_is_server_admin(#user_ctx{roles=Roles}) ->
     case lists:member(<<"_admin">>, Roles) of
     true -> ok;
