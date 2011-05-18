@@ -602,7 +602,14 @@ verify_is_server_admin(#httpd{user_ctx=UserCtx}=Req) ->
             % Normal verification for non-CORS request.
             verify_is_server_admin(UserCtx);
         _ ->
-            throw({unauthorized, <<"Cross-origin admin is not allowed.">>})
+            case couch_config:get("httpd", "cors_admin", "false") of
+                "true" ->
+                    % Allow admin over CORS.
+                    verify_is_server_admin(UserCtx);
+                _False ->
+                    throw({unauthorized,
+                           <<"Cross-origin admin is not allowed.">>})
+            end
     end;
 
 verify_is_server_admin(#user_ctx{roles=Roles}) ->
