@@ -330,29 +330,32 @@ check_is_admin(#db{user_ctx=#user_ctx{name=Name,roles=Roles}}=Db) ->
         ok
     end.
 
-check_is_member(#db{user_ctx=#user_ctx{name=Name,roles=Roles}=UserCtx}=Db) ->
+check_is_member(#db{}=Db) ->
     case (catch check_is_admin(Db)) of
     ok -> ok;
     _ ->
-        {Members} = get_members(Db),
-        ReaderRoles = couch_util:get_value(<<"roles">>, Members,[]),
-        WithAdminRoles = [<<"_admin">> | ReaderRoles],
-        ReaderNames = couch_util:get_value(<<"names">>, Members,[]),
-        case ReaderRoles ++ ReaderNames of
-        [] -> ok; % no readers == public access
-        _Else ->
-            case WithAdminRoles -- Roles of
-            WithAdminRoles -> % same list, not an reader role
-                case ReaderNames -- [Name] of
-                ReaderNames -> % same names, not a reader
-                    ?LOG_DEBUG("Not a reader: UserCtx ~p vs Names ~p Roles ~p",[UserCtx, ReaderNames, WithAdminRoles]),
-                    throw({unauthorized, <<"You are not authorized to access this db.">>});
-                _ ->
-                    ok
-                end;
+        check_may_read(Db)
+    end.
+
+check_may_read(#db{user_ctx=#user_ctx{name=Name,roles=Roles}=UserCtx}=Db) ->
+    {Members} = get_members(Db),
+    ReaderRoles = couch_util:get_value(<<"roles">>, Members,[]),
+    WithAdminRoles = [<<"_admin">> | ReaderRoles],
+    ReaderNames = couch_util:get_value(<<"names">>, Members,[]),
+    case ReaderRoles ++ ReaderNames of
+    [] -> ok; % no readers == public access
+    _Else ->
+        case WithAdminRoles -- Roles of
+        WithAdminRoles -> % same list, not an reader role
+            case ReaderNames -- [Name] of
+            ReaderNames -> % same names, not a reader
+                ?LOG_DEBUG("Not a reader: UserCtx ~p vs Names ~p Roles ~p",[UserCtx, ReaderNames, WithAdminRoles]),
+                throw({unauthorized, <<"You are not authorized to access this db.">>});
             _ ->
                 ok
-            end
+            end;
+        _ ->
+            ok
         end
     end.
 
