@@ -78,7 +78,7 @@ open(DbName, Options) ->
     case couch_server:open(DbName, Options) of
         {ok, Db} ->
             try
-                check_is_member(Db),
+                check_is_member(Db, Options),
                 {ok, Db}
             catch
                 throw:Error ->
@@ -331,10 +331,29 @@ check_is_admin(#db{user_ctx=#user_ctx{name=Name,roles=Roles}}=Db) ->
     end.
 
 check_is_member(#db{}=Db) ->
+    check_is_member(Db, []).
+
+check_is_member(#db{}=Db, Options) ->
     case (catch check_is_admin(Db)) of
     ok -> ok;
     _ ->
-        check_may_read(Db)
+        case (catch check_may_read(Db)) of
+        ok -> ok;
+        NoPermission ->
+            % Allow certain whitelisted requests on "inbox" databases.
+            {Members} = get_members(Db),
+            InboxLabel = <<"allow_anonymous_writes">>,
+            IsInbox = couch_util:get_value(InboxLabel, Members, false),
+            IsInboxable = is_inbox_write(Db, Options),
+            case {IsInbox, IsInboxable} of
+            {true, true} ->
+                ?LOG_DEBUG("Non-member write: ~s by UserCtx ~p",
+                    [Db#db.name, Db#db.user_ctx]),
+                ok;
+            _ ->
+                throw(NoPermission)
+            end
+        end
     end.
 
 check_may_read(#db{user_ctx=#user_ctx{name=Name,roles=Roles}=UserCtx}=Db) ->
@@ -357,6 +376,26 @@ check_may_read(#db{user_ctx=#user_ctx{name=Name,roles=Roles}=UserCtx}=Db) ->
         _ ->
             ok
         end
+    end.
+
+is_inbox_write(#db{name=Name}, Options) ->
+    Method = couch_util:get_value(method, Options, undefined),
+    Path = couch_util:get_value(path_parts, Options, undefined),
+
+    % Allow only certain whitelisted actions.
+    case {Method, Path} of
+    {'POST'  , [Name]}                                             -> true;
+    {'PUT'   , [Name, _Doc]}                                       -> true;
+    {'DELETE', [Name, _Doc]}                                       -> true;
+    {'PUT'   , [Name, _Doc, _Attachment]}                          -> true;
+    {'DELETE', [Name, _Doc, _Attachment]}                          -> true;
+    {'PUT'   , [Name, <<"_design">>, _, <<"_update">>, _Fun]}      -> true;
+    {'POST'  , [Name, <<"_design">>, _, <<"_update">>, _Fun]}      -> true;
+    {'PUT'   , [Name, <<"_design">>, _, <<"_update">>, _Fun, _Id]} -> true;
+    {'POST'  , [Name, <<"_design">>, _, <<"_update">>, _Fun, _Id]} -> true;
+    {'PUT'   , [Name, <<"_design">>, _, <<"_rewrite">> | _Rest]}   -> true;
+    {'POST'  , [Name, <<"_design">>, _, <<"_rewrite">> | _Rest]}   -> true;
+    _ -> false
     end.
 
 get_admins(#db{security=SecProps}) ->

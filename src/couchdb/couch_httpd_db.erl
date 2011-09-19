@@ -188,7 +188,10 @@ delete_db_req(#httpd{user_ctx=UserCtx}=Req, DbName) ->
     end.
 
 do_db_req(#httpd{user_ctx=UserCtx,path_parts=[DbName|_]}=Req, Fun) ->
-    case couch_db:open(DbName, [{user_ctx, UserCtx}]) of
+    Options = [{user_ctx, UserCtx},
+               {method, Req#httpd.method},
+               {path_parts, Req#httpd.path_parts}],
+    case couch_db:open(DbName, Options) of
     {ok, Db} ->
         try
             Fun(Req, Db)
