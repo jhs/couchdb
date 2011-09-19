@@ -190,24 +190,20 @@ couchTests.reader_acl = function(debug) {
     }
   };
 
-  run_on_modified_server(
-    [{section: "httpd",
+  // Execute the test functions, in order, with a restart between each of them.
+  var test_functions = [testFun, testFun2];
+  var config_modification = [
+    {section: "httpd",
       key: "authentication_handlers",
       value: "{couch_httpd_auth, cookie_authentication_handler}, {couch_httpd_auth, default_authentication_handler}"},
-     {section: "couch_httpd_auth",
-      key: "authentication_db", value: "test_suite_users"}],
-    testFun
-  );
-        
-  // security changes will always commit synchronously
-  restartServer();
-  
-  run_on_modified_server(
-    [{section: "httpd",
-      key: "authentication_handlers",
-      value: "{couch_httpd_auth, cookie_authentication_handler}, {couch_httpd_auth, default_authentication_handler}"},
-     {section: "couch_httpd_auth",
-      key: "authentication_db", value: "test_suite_users"}],
-    testFun2
-  );
+    {section: "couch_httpd_auth",
+      key: "authentication_db", value: "test_suite_users"}];
+
+  test_functions.forEach(function(test_function, i) {
+    run_on_modified_server(config_modification, test_function);
+    if(i+1 < test_functions.length) {
+      // Restart to prepare for more tests.
+      restartServer();
+    }
+  });
 }
