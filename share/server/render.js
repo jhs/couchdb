@@ -235,9 +235,11 @@ var Render = (function() {
       if (Mime.providesUsed) {
         var provided_resp = Mime.runProvides(args[1], ddoc) || {};
         provided_resp = maybeWrapResponse(provided_resp);
-        resp.body = (resp.body || "") + chunks.join("");
-        resp.body += provided_resp.body || "";
-        resp = applyContentType(resp, Mime.responseContentType);
+        provided_resp.body = ( (resp.body || "")
+                             + chunks.join("")
+                             + (provided_resp.body || "")
+                             );
+        resp = applyContentType(provided_resp, Mime.responseContentType);
         resetList();
       }
 

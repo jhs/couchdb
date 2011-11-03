@@ -152,6 +152,20 @@ couchTests.show_documents = function(debug) {
           };
         }
       }),
+      "provides-return-string": stringFun(function(doc, req) {
+        provides("html", function() {
+          return "A string response";
+        });
+      }),
+      "provides-return-object": stringFun(function(doc, req) {
+        provides("html", function() {
+          // Hoping for a 302 bounce but browsers transparently chase those.
+          return { "code": 402,
+                   "headers": {"Payment-Location":"http://www.example.com"},
+                   "body": "Bounce to example.com"
+                 };
+        });
+      }),
       "provides" : stringFun(function(doc, req) {
         registerType("foo", "application/foo","application/x-foo");
 
@@ -337,6 +351,27 @@ couchTests.show_documents = function(debug) {
   // extract the ETag header values
   etag = xhr.getResponseHeader("etag");
   T(etag != "skipped")
+
+  // Test provides returning string responses directly.
+  xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/provides-return-string", {
+    headers: {
+      "Accept": "text/html"
+    }
+  });
+  TEquals(200, xhr.status, "provides() returning a string should be 200 OK");
+  TEquals("A string response", xhr.responseText, "provides returns a string correctly");
+
+  // Test provides returning object responses directly.
+  xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/provides-return-object", {
+    headers: {
+      "Accept": "text/html"
+    }
+  });
+  TEquals(402, xhr.status, "provides() returning an object honors the .code value");
+  TEquals("http://www.example.com", xhr.headers['Payment-Location'],
+          "provides() returns an object with headers");
+  TEquals("Bounce to example.com", xhr.responseText,
+          "provides() returns an object with a body");
 
   // test the provides mime matcher
   xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/provides/"+docid, {
