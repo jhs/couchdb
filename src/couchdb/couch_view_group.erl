@@ -313,7 +313,7 @@ handle_info({'EXIT', UpPid, reset},
 handle_info({'EXIT', _, reset}, State) ->
     %% message from an old (probably pre-compaction) updater; ignore
     {noreply, State};
-    
+
 handle_info({'EXIT', _FromPid, normal}, State) ->
     {noreply, State};
 
@@ -608,7 +608,7 @@ init_group(_Db, Fd, #group{def_lang=Lang,views=Views}=
                         UserReds),
                     {Count, Reduced}
                 end,
-            
+
             case couch_util:get_value(<<"collation">>, Options, <<"default">>) of
             <<"default">> ->
                 Less = fun couch_view:less_json_ids/2;
