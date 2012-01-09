@@ -148,7 +148,8 @@ test_passes_header() ->
 test_passes_host_header() ->
     Remote = fun(Req) ->
         "/passes_host_header" = Req:get(path),
-        "www.google.com" = Req:get_header_value("Host"),
+        "www.google.com" = Req:get_header_value(
+            couch_config:get("httpd", "x_forwarded_host", "X-Forwarded-Host")),
         {ok, {200, [], "ok"}}
     end,
     Local = fun({ok, "200", _, "ok"}) -> true; (_) -> false end,

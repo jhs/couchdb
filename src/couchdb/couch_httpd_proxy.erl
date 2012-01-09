@@ -23,8 +23,9 @@
 handle_proxy_req(Req, ProxyDest) ->
     Method = get_method(Req),
     Url = get_url(Req, ProxyDest),
+    Host = element(2, mochiweb_util:urlsplit(Url)),
     Version = get_version(Req),
-    Headers = get_headers(Req),
+    Headers = lists:keyreplace("Host", 1, get_headers(Req), {"Host", Host}),
     Body = get_body(Req),
     Options = [
         {http_vsn, Version},
@@ -75,8 +76,19 @@ get_version(#httpd{mochi_req=MochiReq}) ->
     MochiReq:get(version).
 
 
-get_headers(#httpd{mochi_req=MochiReq}) ->
-    to_ibrowse_headers(mochiweb_headers:to_list(MochiReq:get(headers)), []).
+get_headers(#httpd{mochi_req=MochiReq}=Req) ->
+    {Scheme, Host, _, _, _} = mochiweb_util:urlsplit(
+        couch_httpd:absolute_uri(Req, [])),
+    XHost = couch_config:get("httpd", "x_forwarded_host", "X-Forwarded-Host"),
+    XSsl = couch_config:get("httpd", "x_forwarded_ssl", "X-Forwarded-Ssl"),
+    XProto = couch_config:get("httpd", "x_forwarded_proto", "X-Forwarded-Proto"),
+    XHeaders = [{XHost, Host}]
+        ++ case Scheme of
+               "https" -> [{XSsl, "on"}, {XProto, Scheme}];
+               _ -> []
+           end,
+    Headers = mochiweb_headers:enter_from_list(XHeaders, MochiReq:get(headers)),
+    to_ibrowse_headers(mochiweb_headers:to_list(Headers), []).
 
 to_ibrowse_headers([], Acc) ->
     lists:reverse(Acc);
